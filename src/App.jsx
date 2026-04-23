@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from './supabase'
-import { loginUser, logoutUser, getProfile } from './db'
+import { logoutUser, getProfile } from './db'
 import AdminScreen from './screens/AdminScreen'
 import C from './theme'
 
@@ -8,9 +8,9 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState(null)
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  const [loggingIn, setLoggingIn] = useState(false)
+  const [success, setSuccess] = useState('')
+  const [sendingLink, setSendingLink] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -41,40 +41,50 @@ export default function App() {
       }
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT') {
         setCurrentUser(null)
+      }
+      if (event === 'SIGNED_IN' && session?.user) {
+        const profile = await getProfile(session.user.id)
+        const ADMIN_TYPES = ['admin', 'super_admin', 'moderator', 'support', 'finance', 'content_editor']
+        if (!ADMIN_TYPES.includes(profile.account_type)) {
+          setError('Access denied — admin account required')
+          supabase.auth.signOut()
+          return
+        }
+        setCurrentUser({
+          id: session.user.id,
+          username: profile.username,
+          displayName: profile.display_name,
+          accountType: profile.account_type,
+          adminRole: profile.admin_role,
+        })
       }
     })
 
     return () => subscription.unsubscribe()
   }, [])
 
-  const handleLogin = async (e) => {
+  const handleSendMagicLink = async (e) => {
     e.preventDefault()
     setError('')
-    setLoggingIn(true)
+    setSuccess('')
+    setSendingLink(true)
     try {
-      const { user } = await loginUser({ email, password })
-      const profile = await getProfile(user.id)
-      const ADMIN_TYPES = ['admin', 'super_admin', 'moderator', 'support', 'finance', 'content_editor']
-      if (!ADMIN_TYPES.includes(profile.account_type)) {
-        setError('Access denied — admin account required')
-        await logoutUser()
-        setLoggingIn(false)
-        return
-      }
-      setCurrentUser({
-        id: user.id,
-        username: profile.username,
-        displayName: profile.display_name,
-        accountType: profile.account_type,
-        adminRole: profile.admin_role,
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: window.location.origin,
+        }
       })
+      if (error) throw error
+      setSuccess('Check your email for the login link!')
+      setEmail('')
     } catch (err) {
-      setError('Invalid credentials')
+      setError(err.message || 'Failed to send login link')
     } finally {
-      setLoggingIn(false)
+      setSendingLink(false)
     }
   }
 
@@ -99,15 +109,21 @@ export default function App() {
             <div style={{ fontSize: 14, color: C.muted }}>Staff access only</div>
           </div>
 
-          <form onSubmit={handleLogin} style={{ background: C.card, borderRadius: 16, padding: '24px 20px', border: `1px solid ${C.border}` }}>
+          <form onSubmit={handleSendMagicLink} style={{ background: C.card, borderRadius: 16, padding: '24px 20px', border: `1px solid ${C.border}` }}>
             {error && (
               <div style={{ padding: '10px 14px', background: '#ff446611', border: '1px solid #ff446633', borderRadius: 10, marginBottom: 16, fontSize: 13, color: '#ff6644', textAlign: 'center' }}>
                 {error}
               </div>
             )}
 
+            {success && (
+              <div style={{ padding: '10px 14px', background: '#00e5a011', border: '1px solid #00e5a033', borderRadius: 10, marginBottom: 16, fontSize: 13, color: '#00e5a0', textAlign: 'center' }}>
+                ✓ {success}
+              </div>
+            )}
+
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 12, color: C.muted, fontWeight: 700, marginBottom: 6, letterSpacing: 0.5 }}>EMAIL</label>
+              <label style={{ display: 'block', fontSize: 12, color: C.muted, fontWeight: 700, marginBottom: 6, letterSpacing: 0.5 }}>ADMIN EMAIL</label>
               <input
                 type="email"
                 value={email}
@@ -118,30 +134,23 @@ export default function App() {
               />
             </div>
 
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ display: 'block', fontSize: 12, color: C.muted, fontWeight: 700, marginBottom: 6, letterSpacing: 0.5 }}>PASSWORD</label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-              />
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 16, lineHeight: 1.6 }}>
+              We'll send you a secure login link — no password needed.
             </div>
 
             <button
               type="submit"
-              disabled={loggingIn}
+              disabled={sendingLink}
               style={{
                 width: '100%',
                 padding: '13px',
                 borderRadius: 12,
-                background: loggingIn ? C.border : `linear-gradient(135deg, ${C.sky}, ${C.peach})`,
-                color: loggingIn ? C.muted : '#040f14',
+                background: sendingLink ? C.border : `linear-gradient(135deg, ${C.sky}, ${C.peach})`,
+                color: sendingLink ? C.muted : '#040f14',
                 fontWeight: 800,
                 fontSize: 14,
               }}>
-              {loggingIn ? '⏳ Signing in…' : 'Sign In →'}
+              {sendingLink ? '⏳ Sending link…' : 'Send Login Link →'}
             </button>
           </form>
 
