@@ -25,17 +25,20 @@ const TABS = [
   { id: 'events',    icon: '🎉', label: 'Events'    },
 ];
 
-const ACCOUNT_TYPES = ['resident', 'brand', 'admin', 'super_admin', 'moderator', 'support', 'finance', 'content_editor', 'official'];
+// New role system
+const ROLES = ['owner', 'admin', 'moderator', 'support'];
 const ROLE_COLORS = {
-  super_admin:     '#ff4466',
-  admin:           '#f0a500',
-  moderator:       '#a78bfa',
-  support:         '#00b4c8',
-  finance:         '#00e5a0',
-  content_editor:  '#fb923c',
-  brand:           '#5b8dee',
-  resident:        '#4a8090',
-  official:        '#f0a500',
+  owner:      '#ff4466',
+  admin:      '#f0a500',
+  moderator:  '#a78bfa',
+  support:    '#00b4c8',
+};
+
+const ROLE_DESCRIPTIONS = {
+  owner:      'Full access - Cannot be deleted or modified',
+  admin:      'Can manage users, content, and assign Moderator/Support roles',
+  moderator:  'Can handle reports and manage content',
+  support:    'Can view members and handle reports (read-only)',
 };
 
 // Simple toast
@@ -93,12 +96,10 @@ function OverviewTab() {
       <div style={{ background: C.card, borderRadius: 14, padding: 16, border: `1px solid ${C.border}` }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, letterSpacing: .5, marginBottom: 12 }}>STAFF ROLES</div>
         {[
-          { role: 'super_admin',    label: 'Super Admin',     desc: 'Full access — all sections' },
-          { role: 'admin',          label: 'Admin',           desc: 'Users, reports, content, events' },
-          { role: 'moderator',      label: 'Moderator',       desc: 'Reports + user moderation' },
-          { role: 'support',        label: 'Support',         desc: 'Read-only + report viewing' },
-          { role: 'finance',        label: 'Finance',         desc: 'Wallet management only' },
-          { role: 'content_editor', label: 'Content Editor',  desc: 'Prices, FAQ, T&C editing' },
+          { role: 'owner',      label: 'Owner' },
+          { role: 'admin',      label: 'Admin' },
+          { role: 'moderator',  label: 'Moderator' },
+          { role: 'support',    label: 'Support' },
         ].map(r => (
           <div key={r.role} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
             <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 20,
@@ -106,7 +107,7 @@ function OverviewTab() {
               border: `1px solid ${ROLE_COLORS[r.role]}44`, flexShrink: 0, minWidth: 100, textAlign: 'center' }}>
               {r.label}
             </span>
-            <span style={{ fontSize: 12, color: C.muted }}>{r.desc}</span>
+            <span style={{ fontSize: 12, color: C.muted }}>{ROLE_DESCRIPTIONS[r.role]}</span>
           </div>
         ))}
       </div>
@@ -121,7 +122,7 @@ function MembersTab({ currentUser, showToast }) {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState(null);
-  const [editType, setEditType] = useState('');
+  const [editRole, setEditRole] = useState('');
   const [editWallet, setEditWallet] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -147,10 +148,23 @@ function MembersTab({ currentUser, showToast }) {
 
   const handleSaveUser = async () => {
     if (!selectedUser) return;
+    
+    // Protect Owner role
+    if (selectedUser.role === 'owner') {
+      showToast('❌ Cannot modify Owner role');
+      return;
+    }
+    
+    // Only Owner can create Admins
+    if (editRole === 'admin' && currentUser.role !== 'owner') {
+      showToast('❌ Only Owner can assign Admin role');
+      return;
+    }
+    
     setSaving(true);
     try {
       const updates = {};
-      if (editType) updates.account_type = editType;
+      if (editRole) updates.role = editRole;
       if (editWallet !== '') updates.wallet = parseInt(editWallet) || 0;
       await adminUpdateUser(selectedUser.id, updates);
       setUsers(prev => prev.map(u => u.id === selectedUser.id ? { ...u, ...updates } : u));
@@ -162,12 +176,23 @@ function MembersTab({ currentUser, showToast }) {
   };
 
   const handleSuspend = async (u) => {
+    // Cannot suspend Owner
+    if (u.role === 'owner') {
+      showToast('❌ Cannot suspend Owner');
+      return;
+    }
+    
     try {
-      await adminUpdateUser(u.id, { account_type: 'suspended', wallet_frozen: true });
-      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, account_type: 'suspended' } : x));
+      await adminUpdateUser(u.id, { role: 'user', wallet_frozen: true });
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, role: 'user' } : x));
       showToast(`${u.username} suspended`);
     } catch(e) { showToast('Action failed'); }
   };
+  
+  // Roles the current user can assign
+  const assignableRoles = currentUser.role === 'owner' 
+    ? ['admin', 'moderator', 'support', 'user']
+    : ['moderator', 'support', 'user'];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 120px)' }}>
@@ -186,7 +211,11 @@ function MembersTab({ currentUser, showToast }) {
         {!loading && users.length === 0 && <div style={{ padding: 30, textAlign: 'center', color: C.muted, fontSize: 13 }}>No members found.</div>}
         {users.map(u => (
           <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: `1px solid ${C.border}22`, cursor: 'pointer' }}
-            onClick={() => { setSelectedUser(u); setEditType(u.account_type || 'resident'); setEditWallet(String(u.wallet || 0)); }}>
+            onClick={() => { 
+              setSelectedUser(u); 
+              setEditRole(u.role || 'user'); 
+              setEditWallet(String(u.wallet || 0)); 
+            }}>
             <img src={u.avatar_url || `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(u.username)}&backgroundColor=b6e3f4`}
               alt="" style={{ width: 38, height: 38, borderRadius: '18%', objectFit: 'cover', flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -197,10 +226,11 @@ function MembersTab({ currentUser, showToast }) {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
               <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
-                background: `${ROLE_COLORS[u.account_type] || C.muted}22`,
-                color: ROLE_COLORS[u.account_type] || C.muted,
-                border: `1px solid ${ROLE_COLORS[u.account_type] || C.muted}44` }}>
-                {u.account_type || 'resident'}
+                background: `${ROLE_COLORS[u.role] || '#666'}22`,
+                color: ROLE_COLORS[u.role] || '#666',
+                border: `1px solid ${ROLE_COLORS[u.role] || '#666'}44`,
+                textTransform: 'uppercase' }}>
+                {u.role || 'user'}
               </span>
               <span style={{ fontSize: 10, color: C.gold, fontWeight: 600 }}>L$ {(u.wallet || 0).toLocaleString()}</span>
             </div>
@@ -236,25 +266,39 @@ function MembersTab({ currentUser, showToast }) {
               <button onClick={() => setSelectedUser(null)} style={{ color: C.muted, fontSize: 18 }}>✕</button>
             </div>
 
+            {selectedUser.role === 'owner' && (
+              <div style={{ background: '#ff446611', border: '1px solid #ff446633', borderRadius: 10, padding: 12, marginBottom: 14 }}>
+                <div style={{ fontSize: 12, color: '#ff6644', fontWeight: 700 }}>🛡️ Owner Account</div>
+                <div style={{ fontSize: 11, color: '#ff6644', marginTop: 4 }}>This account cannot be modified or deleted.</div>
+              </div>
+            )}
+
             <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 11, color: C.muted, fontWeight: 700, display: 'block', marginBottom: 5, letterSpacing: .5 }}>ACCOUNT TYPE</label>
-              <select value={editType} onChange={e => setEditType(e.target.value)}>
-                {ACCOUNT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              <label style={{ fontSize: 11, color: C.muted, fontWeight: 700, display: 'block', marginBottom: 5, letterSpacing: .5 }}>ROLE</label>
+              <select value={editRole} onChange={e => setEditRole(e.target.value)} 
+                disabled={selectedUser.role === 'owner'}
+                style={{ width: '100%', padding: '10px', borderRadius: 10, background: selectedUser.role === 'owner' ? C.card2 : C.bg, border: `1px solid ${C.border}`, color: C.text, fontSize: 13 }}>
+                {selectedUser.role === 'owner' && <option value="owner">Owner</option>}
+                {assignableRoles.map(r => (
+                  <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+                ))}
               </select>
             </div>
 
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 11, color: C.muted, fontWeight: 700, display: 'block', marginBottom: 5, letterSpacing: .5 }}>WALLET BALANCE (L$)</label>
-              <input type="number" value={editWallet} onChange={e => setEditWallet(e.target.value)} min="0" />
+              <input type="number" value={editWallet} onChange={e => setEditWallet(e.target.value)} min="0" 
+                style={{ width: '100%', padding: '10px', borderRadius: 10, background: C.bg, border: `1px solid ${C.border}`, color: C.text, fontSize: 13 }} />
             </div>
 
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => { handleSuspend(selectedUser); setSelectedUser(null); }}
-                style={{ flex: 1, padding: '11px', borderRadius: 12, background: '#ff446611', border: '1px solid #ff446633', color: '#ff6644', fontWeight: 700, fontSize: 13 }}>
+                disabled={selectedUser.role === 'owner'}
+                style={{ flex: 1, padding: '11px', borderRadius: 12, background: selectedUser.role === 'owner' ? C.card2 : '#ff446611', border: '1px solid #ff446633', color: selectedUser.role === 'owner' ? C.muted : '#ff6644', fontWeight: 700, fontSize: 13, cursor: selectedUser.role === 'owner' ? 'not-allowed' : 'pointer' }}>
                 ⏸️ Suspend
               </button>
-              <button onClick={handleSaveUser} disabled={saving}
-                style={{ flex: 2, padding: '11px', borderRadius: 12, background: saving ? C.border : `linear-gradient(135deg,${C.sky},${C.peach})`, color: saving ? C.muted : '#060d14', fontWeight: 800, fontSize: 13 }}>
+              <button onClick={handleSaveUser} disabled={saving || selectedUser.role === 'owner'}
+                style={{ flex: 2, padding: '11px', borderRadius: 12, background: (saving || selectedUser.role === 'owner') ? C.border : `linear-gradient(135deg,${C.sky},${C.peach})`, color: (saving || selectedUser.role === 'owner') ? C.muted : '#060d14', fontWeight: 800, fontSize: 13, cursor: selectedUser.role === 'owner' ? 'not-allowed' : 'pointer' }}>
                 {saving ? '⏳ Saving…' : 'Save Changes →'}
               </button>
             </div>
@@ -517,14 +561,13 @@ export default function AdminScreen({ currentUser, onLogout }) {
   };
 
   const roleAccess = {
-    super_admin:     ['overview', 'members', 'reports', 'content', 'events'],
-    admin:           ['overview', 'members', 'reports', 'content', 'events'],
-    moderator:       ['overview', 'members', 'reports', 'events'],
-    support:         ['overview', 'reports'],
-    finance:         ['overview', 'members'],
-    content_editor:  ['overview', 'content'],
+    owner:      ['overview', 'members', 'reports', 'content', 'events'],
+    admin:      ['overview', 'members', 'reports', 'content', 'events'],
+    moderator:  ['overview', 'reports', 'content'],
+    support:    ['overview', 'reports'],
   };
-  const allowed = roleAccess[currentUser.accountType] || ['overview'];
+  const userRole = currentUser.role || 'support'; // Default to most restrictive
+  const allowed = roleAccess[userRole] || ['overview'];
   const visibleTabs = TABS.filter(t => allowed.includes(t.id));
 
   return (
@@ -536,8 +579,8 @@ export default function AdminScreen({ currentUser, onLogout }) {
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 17, color: C.text }}>🛡️ InCynq Admin</div>
           <div style={{ fontSize: 11, marginTop: 2 }}>
-            <span style={{ color: ROLE_COLORS[currentUser.accountType] || C.muted, fontWeight: 700 }}>
-              {currentUser.accountType?.replace(/_/g, ' ')}
+            <span style={{ color: ROLE_COLORS[userRole] || C.muted, fontWeight: 700, textTransform: 'uppercase' }}>
+              {userRole}
             </span>
             <span style={{ color: C.muted }}> · {currentUser.username}</span>
           </div>
