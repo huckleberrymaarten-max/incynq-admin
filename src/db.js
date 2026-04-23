@@ -29,7 +29,7 @@ export const getAppContent = async () => {
 
 export const adminGetStats = async () => {
   const [users, posts, reports, events] = await Promise.all([
-    supabase.from('profiles').select('*', { count: 'exact', head: true }).not('account_type', 'in', '("official")'),
+    supabase.from('profiles').select('*', { count: 'exact', head: true }),
     supabase.from('posts').select('*', { count: 'exact', head: true }).eq('is_welcome', false),
     supabase.from('reports').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
     supabase.from('events').select('*', { count: 'exact', head: true }),
@@ -40,7 +40,7 @@ export const adminGetStats = async () => {
 export const adminGetUsers = async ({ page = 0, search = '', limit = 20 } = {}) => {
   let q = supabase
     .from('profiles')
-    .select('id, username, display_name, avatar_url, account_type, admin_role, activated, wallet, created_at', { count: 'exact' })
+    .select('id, username, display_name, avatar_url, role, activated, wallet, created_at', { count: 'exact' })
     .order('created_at', { ascending: false })
     .range(page * limit, page * limit + limit - 1);
   if (search) q = q.or(`username.ilike.%${search}%,display_name.ilike.%${search}%`);
