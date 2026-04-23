@@ -17,9 +17,9 @@ export default function App() {
       if (session?.user) {
         getProfile(session.user.id)
           .then(profile => {
-            const ADMIN_TYPES = ['admin', 'super_admin', 'moderator', 'support', 'finance', 'content_editor']
-            if (!ADMIN_TYPES.includes(profile.account_type)) {
-              setError('Access denied — admin account required')
+            const STAFF_ROLES = ['owner', 'admin', 'moderator', 'support']
+            if (!STAFF_ROLES.includes(profile.role)) {
+              setError('Access denied — staff account required')
               supabase.auth.signOut()
               setLoading(false)
               return
@@ -28,8 +28,7 @@ export default function App() {
               id: session.user.id,
               username: profile.username,
               displayName: profile.display_name,
-              accountType: profile.account_type,
-              adminRole: profile.admin_role,
+              role: profile.role,
             })
           })
           .catch(() => {
@@ -47,9 +46,9 @@ export default function App() {
       }
       if (event === 'SIGNED_IN' && session?.user) {
         const profile = await getProfile(session.user.id)
-        const ADMIN_TYPES = ['admin', 'super_admin', 'moderator', 'support', 'finance', 'content_editor']
-        if (!ADMIN_TYPES.includes(profile.account_type)) {
-          setError('Access denied — admin account required')
+        const STAFF_ROLES = ['owner', 'admin', 'moderator', 'support']
+        if (!STAFF_ROLES.includes(profile.role)) {
+          setError('Access denied — staff account required')
           supabase.auth.signOut()
           return
         }
@@ -57,8 +56,7 @@ export default function App() {
           id: session.user.id,
           username: profile.username,
           displayName: profile.display_name,
-          accountType: profile.account_type,
-          adminRole: profile.admin_role,
+          role: profile.role,
         })
       }
     })
